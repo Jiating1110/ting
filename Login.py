@@ -1,13 +1,14 @@
 
 
-from Forms import RegisterForm,LoginForm,UpdateProfileForm
-from flask import Flask, render_template, request, redirect, url_for, session
+from Forms import RegisterForm,LoginForm,UpdateProfileForm,ChangePassword
+from flask import Flask, render_template, request, redirect, url_for, session,flash
 from flask_mysqldb import MySQL
 import MySQLdb.cursors
 from flask_bcrypt import Bcrypt   #buy the blender
 bcrypt = Bcrypt()   #initializing the blender
 import cryptography
 from cryptography.fernet import Fernet
+from functools import wraps
 
 
 import re
@@ -26,6 +27,16 @@ app.config['MYSQL_DB'] = 'pythonlogin'
 app.config['MYSQL_PORT'] = 3306
 # Intialize MySQL
 mysql = MySQL(app)
+
+def login_required(f):
+    @wraps(f)
+    def wrap(*args,**kwargs):
+        if 'loggedin' in session:
+            return f(*args,**kwargs)
+        else:
+            flash('You need to login first')
+            return redirect(url_for('login'))
+    return wrap
 
 
 
@@ -50,20 +61,12 @@ def login():
                 session['username'] = account['username']
                 print(session['id'])
 
-                #
-                # encrypted_email = account['email'].encode()
-                # file = open('symmetric.key', 'rb')
-                # key = file.read()
-                # file.close()
-                # f = Fernet(key)
-                #
-                # decrypted_email = f.decrypt(encrypted_email)
-                # email=decrypted_email.decode()
-
                 if account['role']=='admin':
                     return redirect(url_for('admin_home'))
                 else:
+                    flash('You successfully log in ')
                     return redirect(url_for('home'))
+
             else:
                 msg = 'Incorrect username/password!'
         else:
@@ -73,6 +76,7 @@ def login():
 
 
 @app.route('/logout')
+@login_required
 def logout():
     session.pop('loggedin', None)
     session.pop('id', None)
@@ -123,13 +127,10 @@ def admin_home():
 @app.route('/MyWebApp/profile',methods=['GET','POST'])
 def profile():
     if 'loggedin' in session:
-        if request.method=='POST':
-            return redirect(url_for('update_profile'))
-        else:
-            cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-            cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
-            account = cursor.fetchone()
-            print('profile', session['id'])
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+        account = cursor.fetchone()
+
             #
             # encrypted_email=account['email'].encode()
             # file = open('symmetric.key', 'rb')
@@ -140,8 +141,18 @@ def profile():
             # account['email']=decrypted_email.decode()
 
 
-            return render_template('profile.html', account=account)
+        return render_template('profile.html', account=account)
     return redirect(url_for('login'))
+@app.route('/MyWebApp/admin/profile',methods=['GET','POST'])
+def admin_profile():
+    if 'loggedin' in session:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+        account = cursor.fetchone()
+
+        return render_template('admin_profile.html', account=account)
+    return redirect(url_for('login'))
+
 @app.route('/MyWebApp/profile/update',methods=['GET','POST'])
 def update_profile():
     if 'loggedin' in session:
@@ -168,15 +179,30 @@ def update_profile():
             return render_template('update_profile.html',msg=msg,form=update_profile_form,account=account)
     return redirect(url_for('login'))
 
-@app.route('/MyWebApp/admin/profile')
-def admin_profile():
+@app.route('/MyWebApp/Profile/ChangePassowrd',methods=['GET','POST'])
+def change_password():
     if 'loggedin' in session:
-        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
-        account = cursor.fetchone()
+        msg=' '
+        pwd_form=ChangePassword(request.form)
+        if request.method=='POST' and pwd_form.validate():
+            newpwd=pwd_form.newpwd.data
+            confirm_password=pwd_form.confirmpwd.data
 
-        return render_template('admin_profile.html', account=account)
+            if newpwd==confirm_password:
+                hashpwd = bcrypt.generate_password_hash(confirm_password)
+                cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+                cursor.execute('UPDATE accounts SET password = %s WHERE id = %s', (hashpwd, session['id']))
+                mysql.connection.commit()
+                msg = 'You have successfully update!'
+
+                return redirect(url_for('profile'))
+            else:
+                msg='Password didnt match.Pls try again'
+        return render_template('change_pwd.html',form=pwd_form,msg=msg)
     return redirect(url_for('login'))
+
+
+
 
 
 

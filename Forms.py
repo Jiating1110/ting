@@ -13,3 +13,7 @@ class UpdateProfileForm(Form):
     username = StringField('Username', [validators.DataRequired()])
     email = StringField('Email', [validators.Email(message='Invalid Email format'),
                                   validators.DataRequired(message='Email address is required.')])
+
+class ChangePassword(Form):
+    newpwd=PasswordField('New Password',[validators.DataRequired()])
+    confirmpwd=PasswordField('Confirm Password',[validators.DataRequired()])
