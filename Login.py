@@ -1,7 +1,13 @@
-
+import os
+import pathlib
+from google.oauth2 import id_token
+from google_auth_oauthlib.flow import Flow
+from pip._vendor import cachecontrol
+import google.auth.transport.requests
+import requests
 
 from Forms import RegisterForm,LoginForm,UpdateProfileForm,ChangePassword
-from flask import Flask, render_template, request, redirect, url_for, session,flash
+from flask import Flask, render_template, request, redirect, url_for, session,flash,abort
 from flask_mysqldb import MySQL
 import MySQLdb.cursors
 from flask_bcrypt import Bcrypt   #buy the blender
@@ -28,6 +34,16 @@ app.config['MYSQL_PORT'] = 3306
 # Intialize MySQL
 mysql = MySQL(app)
 
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+google_client_id="494648185587-331iamoak392u2o7bl1h2ornokj4qmse.apps.googleusercontent.com"
+client_secrets_file=os.path.join(pathlib.Path(__file__).parent,"client_secret.json")
+flow = Flow.from_client_secrets_file(
+    client_secrets_file=client_secrets_file,
+    scopes=["https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email", "openid"],
+    redirect_uri="http://127.0.0.1:5000/callback"
+)
+
+
 def login_required(f):
     @wraps(f)
     def wrap(*args,**kwargs):
@@ -38,6 +54,34 @@ def login_required(f):
             return redirect(url_for('login'))
     return wrap
 
+
+@app.route("/google_login")
+def google_login():
+    authorization_url, state = flow.authorization_url()
+    session["state"] = state
+    return redirect(authorization_url)
+
+@app.route("/callback")
+def callback():
+    flow.fetch_token(authorization_response=request.url)
+
+    if not session["state"] == request.args["state"]:
+        abort(500)  # State does not match!
+
+    credentials = flow.credentials
+    request_session = requests.session()
+    cached_session = cachecontrol.CacheControl(request_session)
+    token_request = google.auth.transport.requests.Request(session=cached_session)
+
+    id_info = id_token.verify_oauth2_token(
+        id_token=credentials._id_token,
+        request=token_request,
+        audience=google_client_id
+    )
+
+    session["google_id"] = id_info.get("sub")
+    session["name"] = id_info.get("name")
+    return redirect('/MyWebApp/home')
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -95,16 +139,6 @@ def register():
         role='customer'
         hashpwd = bcrypt.generate_password_hash(password)
 
-
-        # key = Fernet.generate_key()
-        # with open("symmetric.key", "wb") as fo:
-        #     fo.write(key)
-        #
-        # f = Fernet(key)
-        #
-        # email = email.encode()
-        # encrypted_email = f.encrypt(email)
-
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute('INSERT INTO accounts VALUES (NULL, %s, %s, %s, %s)', (role,username, hashpwd, email,))
         mysql.connection.commit()
@@ -113,6 +147,7 @@ def register():
     return render_template('register.html', msg=msg,form=register_form)
 
 @app.route('/MyWebApp/home')
+@login_required
 def home():
     if 'loggedin' in session:
         return render_template('home.html', username=session['username'])
@@ -125,21 +160,12 @@ def admin_home():
 
 
 @app.route('/MyWebApp/profile',methods=['GET','POST'])
+@login_required
 def profile():
     if 'loggedin' in session:
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
         account = cursor.fetchone()
-
-            #
-            # encrypted_email=account['email'].encode()
-            # file = open('symmetric.key', 'rb')
-            # key = file.read()
-            # file.close()
-            # f=Fernet(key)
-            # decrypted_email=f.decrypt(encrypted_email)
-            # account['email']=decrypted_email.decode()
-
 
         return render_template('profile.html', account=account)
     return redirect(url_for('login'))
@@ -154,6 +180,7 @@ def admin_profile():
     return redirect(url_for('login'))
 
 @app.route('/MyWebApp/profile/update',methods=['GET','POST'])
+@login_required
 def update_profile():
     if 'loggedin' in session:
         msg=' '
@@ -180,6 +207,7 @@ def update_profile():
     return redirect(url_for('login'))
 
 @app.route('/MyWebApp/Profile/ChangePassowrd',methods=['GET','POST'])
+@login_required
 def change_password():
     if 'loggedin' in session:
         msg=' '
