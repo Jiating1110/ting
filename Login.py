@@ -81,6 +81,11 @@ def callback():
 
     session["google_id"] = id_info.get("sub")
     session["name"] = id_info.get("name")
+
+    session['loggedin'] = True
+
+
+
     return redirect('/MyWebApp/home')
 
 
@@ -197,8 +202,10 @@ def update_profile():
             return redirect(url_for('profile'))
         else:
             cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-            username=session['username']
-            cursor.execute('SELECT * FROM accounts WHERE username = %s ', (username,))
+            id=session['id']
+            cursor.execute('SELECT * FROM accounts WHERE id = %s ', (id,))
+            # username=session['username']
+            # cursor.execute('SELECT * FROM accounts WHERE username = %s ', (username,))
             account=cursor.fetchone()
 
             update_profile_form.username.data=account['username']
@@ -228,9 +235,11 @@ def change_password():
                 msg='Password didnt match.Pls try again'
         return render_template('change_pwd.html',form=pwd_form,msg=msg)
     return redirect(url_for('login'))
-
-
-
+#ellexys,email verification
+@app.route('/ForgotPassword',methods=['GET','POST'])
+@login_required
+def forgot_password():
+    pass
 
 
 
