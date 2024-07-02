@@ -161,10 +161,9 @@ def register():
         role='customer'
         hashpwd = bcrypt.generate_password_hash(password)
 
-        # Generate Symmetric key
         key = Fernet.generate_key()
         # Write Symmetric key to file – wb:write and close file
-        key_file_name=f"{username}_symmetric.key"
+        key_file_name = f"{username}_symmetric.key"
         with open(key_file_name, "wb") as fo:
             fo.write(key)
         # Initialize Fernet Class
@@ -256,7 +255,6 @@ def admin_profile():
 @login_required
 def update_profile():
     if 'loggedin' in session:
-
         msg=' '
         update_profile_form=UpdateProfileForm(request.form)
         if request.method=='POST' and update_profile_form.validate():
@@ -337,6 +335,10 @@ def change_password():
             newpwd=pwd_form.newpwd.data
             confirm_password=pwd_form.confirmpwd.data
 
+            cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+            cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+            account = cursor.fetchone()
+
             if newpwd==confirm_password:
                 hashpwd = bcrypt.generate_password_hash(confirm_password)
                 cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -344,7 +346,10 @@ def change_password():
                 mysql.connection.commit()
                 msg = 'You have successfully update!'
 
-                return redirect(url_for('profile'))
+                if account['role'] == 'admin':
+                    return redirect(url_for('admin_profile'))
+                else:
+                    return redirect(url_for('profile'))
             else:
                 msg='Password didnt match.Pls try again'
         return render_template('change_pwd.html',form=pwd_form,msg=msg)
