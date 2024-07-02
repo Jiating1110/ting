@@ -118,7 +118,24 @@ def login():
                 session['loggedin'] = True
                 session['id'] = account['id']
                 session['username'] = account['username']
-                print(session['id'])
+
+                # convert encrypted email address to bytes
+                encrypted_email = account['email'].encode()
+
+                key_file_name = f"{username}_symmetric.key"
+                if not os.path.exists(key_file_name):
+                    return "Symmetric key file not found."
+
+                # Open and read the symmetric key file
+                file = open(key_file_name, 'rb')
+                key = file.read()
+                file.close()
+                # Load he Symmetric key
+                f = Fernet(key)
+
+                # Decrypt the Encrypted Email address
+                decrypted_email = f.decrypt(encrypted_email)
+                email = decrypted_email.decode()
 
                 if account['role']=='admin':
                     return redirect(url_for('admin_home'))
@@ -154,8 +171,21 @@ def register():
         role='customer'
         hashpwd = bcrypt.generate_password_hash(password)
 
+        key = Fernet.generate_key()
+        # Write Symmetric key to file – wb:write and close file
+        key_file_name = f"{username}_symmetric.key"
+        with open(key_file_name, "wb") as fo:
+            fo.write(key)
+        # Initialize Fernet Class
+        f = Fernet(key)
+
+        # convert email address to bytes before saving to Database
+        email = email.encode()
+        # Encrypt email address
+        encrypted_email = f.encrypt(email)
+
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute('INSERT INTO accounts VALUES (NULL, %s, %s, %s, %s)', (role,username, hashpwd, email,))
+        cursor.execute('INSERT INTO accounts VALUES (NULL, %s, %s, %s, %s)', (role,username, hashpwd, encrypted_email,))
         mysql.connection.commit()
         msg = 'You have successfully registered!'
 
@@ -173,7 +203,6 @@ def admin_home():
         return render_template('admin_home.html', username=session['username'])
     return redirect(url_for('login'))
 
-
 @app.route('/MyWebApp/profile',methods=['GET','POST'])
 @login_required
 def profile():
@@ -182,14 +211,52 @@ def profile():
         cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
         account = cursor.fetchone()
 
+        encrypted_email = account['email'].encode()
+        username = account['username']
+        key_file_name = f"{username}_symmetric.key"
+
+        if not os.path.exists(key_file_name):
+            return "Symmetric key file not found."
+        with open(key_file_name, 'rb') as key_file:
+            key = key_file.read()
+
+        f = Fernet(key)
+        decrypted_email = f.decrypt(encrypted_email)
+        email=decrypted_email.decode()
+
+        # Mask the email address
+        email_parts = email.split('@')
+        masked_email = f"{email_parts[0][0]}***{email_parts[0][-1]}@{email_parts[1]}"
+
+        account['email']=masked_email
         return render_template('profile.html', account=account)
     return redirect(url_for('login'))
+
 @app.route('/MyWebApp/admin/profile',methods=['GET','POST'])
 def admin_profile():
     if 'loggedin' in session:
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
         account = cursor.fetchone()
+
+        encrypted_email = account['email'].encode()
+        username = account['username']
+        key_file_name = f"{username}_symmetric.key"
+
+        if not os.path.exists(key_file_name):
+            return "Symmetric key file not found."
+        with open(key_file_name, 'rb') as key_file:
+            key = key_file.read()
+
+        f = Fernet(key)
+        decrypted_email = f.decrypt(encrypted_email)
+        email = decrypted_email.decode()
+
+        # Mask the email address
+        email_parts = email.split('@')
+        masked_email = f"{email_parts[0][0]}***{email_parts[0][-1]}@{email_parts[1]}"
+
+        account['email'] = masked_email
 
         return render_template('admin_profile.html', account=account)
     return redirect(url_for('login'))
@@ -201,25 +268,70 @@ def update_profile():
         msg=' '
         update_profile_form=UpdateProfileForm(request.form)
         if request.method=='POST' and update_profile_form.validate():
-            username=update_profile_form.username.data
+            new_username=update_profile_form.username.data
             email=update_profile_form.email.data
 
             cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-            cursor.execute('UPDATE accounts SET username = %s,email=%s WHERE id = %s', (username,email, session['id']))
+            cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+            account = cursor.fetchone()
+            old_username=account['username']
+
+            old_key_file_name = f"{old_username}_symmetric.key"
+            if not os.path.exists(old_key_file_name):
+                return "Symmetric key file not found."
+
+            new_key_file_name=f"{new_username}_symmetric.key"
+            try:
+                os.rename(old_key_file_name, new_key_file_name)
+            except Exception as e:
+                return f"Error renaming key file: {str(e)}"
+
+            # Open and read the symmetric key file
+            with open(new_key_file_name, 'rb') as key_file:
+                key = key_file.read()
+
+            f = Fernet(key)
+
+            # convert email address to bytes before saving to Database
+            email = email.encode()
+            # Encrypt email address
+            encrypted_email = f.encrypt(email)
+
+            cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+            cursor.execute('UPDATE accounts SET username = %s,email=%s WHERE id = %s', (new_username,encrypted_email, session['id']))
             mysql.connection.commit()
-            print('update profile',session['id'])
-            msg='You have successfully update!'
-            return redirect(url_for('profile'))
+            msg = 'You have successfully update!'
+
+            if account['role'] == 'admin':
+                return redirect(url_for('admin_profile'))
+            else:
+                return redirect(url_for('profile'))
+
         else:
             cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
             id=session['id']
             cursor.execute('SELECT * FROM accounts WHERE id = %s ', (id,))
-            # username=session['username']
-            # cursor.execute('SELECT * FROM accounts WHERE username = %s ', (username,))
             account=cursor.fetchone()
 
+            encrypted_email = account['email'].encode()
+            username = account['username']
+            key_file_name = f"{username}_symmetric.key"
+
+            if not os.path.exists(key_file_name):
+                return "Symmetric key file not found."
+
+            # Open and read the symmetric key file
+            with open(key_file_name, 'rb') as key_file:
+                key = key_file.read()
+
+            f = Fernet(key)
+            decrypted_email = f.decrypt(encrypted_email)
+            # account['email'] = decrypted_email.decode()
+            email = decrypted_email.decode()
+
+
             update_profile_form.username.data=account['username']
-            update_profile_form.email.data=account['email']
+            update_profile_form.email.data=email
             return render_template('update_profile.html',msg=msg,form=update_profile_form,account=account)
     return redirect(url_for('login'))
 
@@ -233,6 +345,10 @@ def change_password():
             newpwd=pwd_form.newpwd.data
             confirm_password=pwd_form.confirmpwd.data
 
+            cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+            cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+            account = cursor.fetchone()
+
             if newpwd==confirm_password:
                 hashpwd = bcrypt.generate_password_hash(confirm_password)
                 cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -240,7 +356,10 @@ def change_password():
                 mysql.connection.commit()
                 msg = 'You have successfully update!'
 
-                return redirect(url_for('profile'))
+                if account['role'] == 'admin':
+                    return redirect(url_for('admin_profile'))
+                else:
+                    return redirect(url_for('profile'))
             else:
                 msg='Password didnt match.Pls try again'
         return render_template('change_pwd.html',form=pwd_form,msg=msg)
