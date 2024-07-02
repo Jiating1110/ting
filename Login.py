@@ -256,21 +256,30 @@ def admin_profile():
 @login_required
 def update_profile():
     if 'loggedin' in session:
+
         msg=' '
         update_profile_form=UpdateProfileForm(request.form)
         if request.method=='POST' and update_profile_form.validate():
-            username=update_profile_form.username.data
+            new_username=update_profile_form.username.data
             email=update_profile_form.email.data
 
-            # Generate Symmetric key
-            key = Fernet.generate_key()
-            # Write Symmetric key to file – wb:write and close file
-            key_file_name = f"{username}_symmetric.key"
-            if not os.path.exists(key_file_name):
+            cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+            cursor.execute('SELECT * FROM accounts WHERE id = %s', (session['id'],))
+            account = cursor.fetchone()
+            old_username=account['username']
+
+            old_key_file_name = f"{old_username}_symmetric.key"
+            if not os.path.exists(old_key_file_name):
                 return "Symmetric key file not found."
 
+            new_key_file_name=f"{new_username}_symmetric.key"
+            try:
+                os.rename(old_key_file_name, new_key_file_name)
+            except Exception as e:
+                return f"Error renaming key file: {str(e)}"
+
             # Open and read the symmetric key file
-            with open(key_file_name, 'rb') as key_file:
+            with open(new_key_file_name, 'rb') as key_file:
                 key = key_file.read()
 
             f = Fernet(key)
@@ -281,11 +290,15 @@ def update_profile():
             encrypted_email = f.encrypt(email)
 
             cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-            cursor.execute('UPDATE accounts SET username = %s,email=%s WHERE id = %s', (username,encrypted_email, session['id']))
+            cursor.execute('UPDATE accounts SET username = %s,email=%s WHERE id = %s', (new_username,encrypted_email, session['id']))
             mysql.connection.commit()
-            print('update profile',session['id'])
-            msg='You have successfully update!'
-            return redirect(url_for('profile'))
+            msg = 'You have successfully update!'
+
+            if account['role'] == 'admin':
+                return redirect(url_for('admin_profile'))
+            else:
+                return redirect(url_for('profile'))
+
         else:
             cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
             id=session['id']
