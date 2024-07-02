@@ -17,6 +17,9 @@ from cryptography.fernet import Fernet
 from functools import wraps
 
 
+
+
+
 import re
 app = Flask(__name__)
 # Change this to your secret key (can be anything, it's for extra protection)
@@ -44,6 +47,8 @@ flow = Flow.from_client_secrets_file(
 )
 
 
+
+
 def login_required(f):
     @wraps(f)
     def wrap(*args,**kwargs):
@@ -54,6 +59,11 @@ def login_required(f):
             return redirect(url_for('login'))
     return wrap
 
+#this is try branches
+@app.route('/try',methods=['GET','POST'])
+@login_required
+def forgot_password():
+    pass
 
 @app.route("/google_login")
 def google_login():
