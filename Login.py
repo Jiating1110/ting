@@ -59,11 +59,7 @@ def login_required(f):
             return redirect(url_for('login'))
     return wrap
 
-#this is try branches
-@app.route('/try',methods=['GET','POST'])
-@login_required
-def forgot_password():
-    pass
+
 
 @app.route("/google_login")
 def google_login():
@@ -284,7 +280,8 @@ def update_profile():
             try:
                 os.rename(old_key_file_name, new_key_file_name)
             except Exception as e:
-                return f"Error renaming key file: {str(e)}"
+                flash('Error renaming key file')
+                return redirect(url_for('update_profile'))
 
             # Open and read the symmetric key file
             with open(new_key_file_name, 'rb') as key_file:
